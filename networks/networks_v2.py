@@ -5,6 +5,7 @@ import torch.nn.functional as F
 import numpy as np
 from .networks import ContentEncoder, MLP, Conv2dBlock, ResBlocks, AdaptiveInstanceNorm2d
 from transformers import BertTokenizer, BertModel, BertForMaskedLM, BertConfig
+import torch.distributions as tdist
 
 
 class AdaINGen_v2(nn.Module):
@@ -43,7 +44,43 @@ class AdaINGen_v2(nn.Module):
         self.dec = Decoder(content_downsample, n_res, self.enc_content.output_dim, 
             input_dim, res_norm='adain', activ=activ, pad_type=pad_type, 
             use_attention=use_attention)
+        
+        
+        #fcs for mu and var
+        
+        self.fc_mu = nn.Sequential(nn.Linear(262144, 8),
+                                     nn.LeakyReLU(inplace=True),
+#                                      nn.Dropout(p=0.3),
+#                                      nn.Linear(2048, 256),
+#                                      nn.Dropout(p=0.1),
+#                                      nn.ReLU(inplace=True),
+#                                      nn.Linear(512,256),
+     
+                                  )
+        
+        self.fc_var = nn.Sequential(nn.Linear(262144, 8),
+                                     nn.LeakyReLU(inplace=True),
+#                                      nn.Dropout(p=0.3),
+#                                      nn.Linear(2048, 256),
+#                                      nn.Dropout(p=0.1),
+#                                      nn.ReLU(inplace=True),
+#                                      nn.Linear(512,256),
+        
+                                  )
+        
+        self.z_up = nn.Sequential(
+                                       nn.Linear(8, 262144),
+                                     nn.LeakyReLU(inplace=True),
+#                                      nn.Dropout(p=0.3),
+#                                      nn.Linear(256, 2048),
+#                                      nn.Dropout(p=0.1),
+#                                      nn.ReLU(inplace=True),
+#                                      nn.Linear(256, 262144),
+                                    
+                                  )
 
+
+        
         # style transfer
         self.enc_txt = TxtEncoder(vocab, embed_dim, hidden_size, c_dim, 
             num_cls, num_layers, dropout_in, dropout_out, 
@@ -55,7 +92,7 @@ class AdaINGen_v2(nn.Module):
         
         # Bert Model
         #self.tokenizer = BertTokenizer.from_pretrained('bert-base-cased')
-        #pretrained = True
+        
         
         #BERT base-cased: 12-layers, 768-hidden, 12-heads , 110M parameters
         #BERT large-cased: 24-layer, 1024-hidden, 16-heads, 340M parameters
@@ -63,31 +100,119 @@ class AdaINGen_v2(nn.Module):
         #self.bert = BertModel.from_pretrained('bert-base-cased')
         
 
+#     def forward(self, images):
+#         # reconstruct an image
+#         content, mus, logvar = self.encode(images)
+#         images_recon = self.decode(content, mus)
+#         return images_recon
+
+
     def forward(self, images):
         # reconstruct an image
-        content, mus, logvar = self.encode(images)
-        images_recon = self.decode(content, mus)
-        return images_recon
+        Z_sample, content_mus, content_vars, mus, logvar = self.encode(images)
 
-    def encode(self, images):
+        
+        images_recon = self.decode(Z_sample, mus)
+        return images_recon    #(content & attention)
+
+
+#     def encode(self, images):
+#         # encode an image to its content and style codes
+#         mus, logvar = self.enc_style(images)
+#         content = self.enc_content(images)
+#         return content, mus, logvar
+
+
+    ''' 
+    Option 1: Use 1-dim latent space with fc2mu & mu2fc layers
+    Option 2: Use spatial latent space with no regularization, asumme variance is 1 (like was implemented by authors)
+    TODO: Concatenation step with modified style attributes i.e style txt
+    '''
+
+
+
+    def encode(self, images, config_wb):
         # encode an image to its content and style codes
         mus, logvar = self.enc_style(images)
         content = self.enc_content(images)
-        return content, mus, logvar
+        print("min max content", torch.min(content), torch.max(content))
+        
+        #flatten
+        x = content.view(1,-1) #(1,262144)
+        
+        content_mus = self.fc_mu(x) # (1, 256)
+        content_log_var = self.fc_var(x)  # (1, 256)
+                      
+
+        if self.training: 
+
+            '''Re-parameterization trick '''
+          
+            #sample from content (latent) distribution using differentiable re-parameterization trick 
+            content_std = torch.exp(0.5 * content_log_var)
+            standard_noise = torch.randn_like(content_std)  #N(0,1)
+                            
+            Z_sample = (standard_noise * content_std) + content_mus # (N(0,1)*S) + M -> # (1, 256)
+            
+            Z_sample = self.z_up(Z_sample) # (1, 262144)
+            Z_sample = Z_sample.view(1, 256, 32, 32)
+            
+            print("min max Z_sample", torch.min(Z_sample), torch.max(Z_sample))
+            
+#             STOP
+            
+            #skip connection (method 2)
+            Z_sample = Z_sample + content
+            
+            #we return mu and log_var in order to regularize the latent space
+            return Z_sample, content_mus, content_log_var, mus, logvar
+     
+
+        else: #testing/ Inference Time
+
+            #option 1: use means as  content directly
+            #Z_sample = content_mus
+
+            #option 2: use  differentiable re-parameterization to sample
+            #standard_noise = torch.randn_like(content_vars)  #N(0,1)
+            #Z_sample = standard_noise.mul(content_vars).add(content_mus) # (N(0,1)*S) + M
+
+            #option3: sample from mu and var (Not diff if used like this at training time)
+            
+            content_std = torch.exp(0.5 * content_log_var)
+            Z_sample = tdist.Normal(content_mus, content_std).sample() 
+            Z_sample = self.z_up(Z_sample) # (1, 262144)
+            Z_sample = Z_sample.view(1, 256, 32, 32)
+
+            return Z_sample, content_mus, content_log_var, mus, logvar
+
+
+        
 
     def encode_txt(self, style_ord, txt_org2trg, testing_bert, config_wb, txt_lens):
         print('txt_lens for encode_txt in networks_v2:', txt_lens)
         mu, logvar = self.enc_txt(style_ord, txt_org2trg, testing_bert, config_wb, txt_lens)
         return mu, logvar
 
+#     def decode(self, content, style):
+#         # decode content and style codes to an image
+#         adain_params = self.mlp(style)
+#         print("adain_params", adain_params.shape)
+        
+#         self.assign_adain_params(adain_params, self.dec)
+#         images = self.dec(content)
+#         return images
+
+
+    
     def decode(self, content, style):
         # decode content and style codes to an image
         adain_params = self.mlp(style)
-        print("adain_params", adain_params.shape)
-        
         self.assign_adain_params(adain_params, self.dec)
-        images = self.dec(content)
-        return images
+
+        images = self.dec(content) 
+        return images   #(content & attention)
+
 
     def assign_adain_params(self, adain_params, model):
         # assign the adain_params to the AdaIN layers in model
@@ -143,7 +268,11 @@ class StyleEncoder(nn.Module):
 
     def forward(self, x):
         feats  = self.model(x)
+        #print("feats", feats.shape)
         feats_ = feats.view(x.size(0), -1)
+        #print("feats_", feats_.shape)
+        
+        #STOP FEATS---------
 
         if self.use_map:
             feats_ = self.mapping(feats_)
@@ -222,18 +351,20 @@ class TxtEncoder(nn.Module):
             bidirectional=bidirectional
         )
         
+        ''' I am commenting out bert in VAE-variants to reduce model size and
+        speed training a bit'''
         
         #Fuse Network - Dan
-        self.fuse = nn.Linear(832, 2400)
-        #self.dropout = nn.Dropout(p=0.1) #0.5
+        #self.fuse = nn.Linear(832, 2400)
+        #self.fuse_dropout = 0.3 #0.5
         
-        self.tokenizer = BertTokenizer.from_pretrained('bert-base-cased')
         
+        #self.tokenizer = BertTokenizer.from_pretrained('bert-base-cased')
+
         
         #BERT base-cased: 12-layers, 768-hidden, 12-heads , 110M parameters
         #BERT large-cased: 24-layer, 1024-hidden, 16-heads, 340M parameters
-        
-        self.bert = BertModel.from_pretrained('bert-base-cased').cuda()
+        #self.bert = BertModel.from_pretrained('bert-base-cased').cuda()
 
 
         
@@ -247,6 +378,7 @@ class TxtEncoder(nn.Module):
             self.fcvars.append(nn.Linear(hidden_dim, c_dim)) #2400 -> 8
             
            
+
 
     def bert_features(self, reversed_text):
         x = []
@@ -263,7 +395,7 @@ class TxtEncoder(nn.Module):
         
         '''I think we should move bert directly into initialization methods so they
         can all be combined as 1 model. Though this might make the size big. But you might 
-        prefer 1 model than 2 separate ones. DONE'''
+        prefer 1 model than 2 separate ones'''
 
 
         for text in reversed_text:
@@ -320,6 +452,23 @@ class TxtEncoder(nn.Module):
 
 
 
+#     test = torch.Tensor([[ 1, 61, 66, 69, 10, 84, 27, 66,  9, 88,  8, 79, 36, 84, 56, 57, 27, 66,
+#              24, 84, 82, 87, 84, 56, 57, 27, 63,  3,  2,  0,  0,  0,  0,  0,  0,  0,
+#               0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+#               0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+#               0,  0,  0,  0,  0,  0,  0,  0]]).view(-1).tolist()
+
+
+#     testing_bert = ind2text(test, vocab_rev)
+#     print('testing_bert:', testing_bert)
+
+    #texts = ["She is a girl oh yes?"]
+    
+#     (out1, out2) = self.bert_features([testing_bert])
+#     print("out1, out2", out1.permute(1,0,2).shape, out2.shape)  
+
+    
+            
 
     # Using raw text as input
     def forward(self, style_ord, src_tokens, testing_bert, config_wb, src_lengths):
@@ -353,9 +502,6 @@ class TxtEncoder(nn.Module):
         if config_wb.use_bert:
               
             #### Use BERT last hidden #############
-            
-            ''' We assume that the BERT (single final) Representaion would be rich enough 
-            to encode the textual information - following Markov Property'''
 
             print("testing_bert:", testing_bert)
             (out1, out2) = self.bert_features([testing_bert])
@@ -366,7 +512,7 @@ class TxtEncoder(nn.Module):
             x = torch.cat([out2, sorted_style_ord.expand(out2.shape[0], -1, -1)], -1) #  (1,64) ->(1,1,64):(1,1,768)->(1,1,832)
             x = self.fuse(x) # (1,1,832) -> (1,1,2400)
             x = F.dropout(x, p=config_wb.dropout, training=self.training)
-            output = x.view(1,-1) #(1,2400)
+            output = x.view(1,-1)
             
             print('output', output.shape)
 
@@ -447,44 +593,44 @@ class TxtEncoder(nn.Module):
         return fcs, fcvars
 
     # Using word embeddings as input directly
-#     def forward_embed(self, style_ord, embeddings, lengths):
-#         print('****Using word embeddings as input directly*****')
+    def forward_embed(self, style_ord, embeddings, lengths):
+        print('****Using word embeddings as input directly*****')
         
-#         _, indices = torch.sort(lengths, descending=True)
-#         x = embeddings.transpose(1,0) # Batch_size,Seq_len,Dim -> S,B,D
-#         seq_len, bsz, emb_dim = x.size()
-#         x = F.dropout(x, p=self.dropout_in, training=self.training)
-#         x = torch.cat([x, style_ord.expand(seq_len, -1, -1)], -1)
+        _, indices = torch.sort(lengths, descending=True)
+        x = embeddings.transpose(1,0) # Batch_size,Seq_len,Dim -> S,B,D
+        seq_len, bsz, emb_dim = x.size()
+        x = F.dropout(x, p=self.dropout_in, training=self.training)
+        x = torch.cat([x, style_ord.expand(seq_len, -1, -1)], -1)
         
-#         packed_x = nn.utils.rnn.pack_padded_sequence(x, lengths)
+        packed_x = nn.utils.rnn.pack_padded_sequence(x, lengths)
 
-#         if self.bidirectional:
-#             state_size = 2 * self.num_layers, bsz, self.hidden_size
-#         else:
-#             state_size = self.num_layers, bsz, self.hidden_size
-#         h0 = x.data.new(*state_size).zero_()
-#         c0 = x.data.new(*state_size).zero_()
-#         packed_outs, (final_h, final_c) = self.lstm(packed_x, (h0, c0))
+        if self.bidirectional:
+            state_size = 2 * self.num_layers, bsz, self.hidden_size
+        else:
+            state_size = self.num_layers, bsz, self.hidden_size
+        h0 = x.data.new(*state_size).zero_()
+        c0 = x.data.new(*state_size).zero_()
+        packed_outs, (final_h, final_c) = self.lstm(packed_x, (h0, c0))
 
-#         mem, _ = nn.utils.rnn.pad_packed_sequence(packed_outs)
-#         mem = F.dropout(mem, p=self.dropout_out, training=self.training)
+        mem, _ = nn.utils.rnn.pad_packed_sequence(packed_outs)
+        mem = F.dropout(mem, p=self.dropout_out, training=self.training)
 
-#         if self.bidirectional:
-#             def combine_bidir(outs):
-#                 return outs.view(self.num_layers, 2, bsz, -1).transpose(1, 2).contiguous().view(self.num_layers, bsz, -1)
-#             final_h = combine_bidir(final_h)
-#             final_c = combine_bidir(final_c)
+        if self.bidirectional:
+            def combine_bidir(outs):
+                return outs.view(self.num_layers, 2, bsz, -1).transpose(1, 2).contiguous().view(self.num_layers, bsz, -1)
+            final_h = combine_bidir(final_h)
+            final_c = combine_bidir(final_c)
 
-#         _, positions = torch.sort(indices)
-#         final_h = final_h.index_select(1, positions) # num_layers x bsz x hidden_size
-#         final_c = final_c.index_select(1, positions) 
+        _, positions = torch.sort(indices)
+        final_h = final_h.index_select(1, positions) # num_layers x bsz x hidden_size
+        final_c = final_c.index_select(1, positions) 
       
 
-#         batch_size = final_h.size(1)
-#         output = torch.cat([final_h, final_c], dim=1).view(batch_size, -1)
-#         fcs, fcvars = [], []
-#         for i in range(self.num_class):
-#             fcs.append(self.fcs[i](output))
-#             fcvars.append(self.fcvars[i](output))
-#         return fcs, fcvars
+        batch_size = final_h.size(1)
+        output = torch.cat([final_h, final_c], dim=1).view(batch_size, -1)
+        fcs, fcvars = [], []
+        for i in range(self.num_class):
+            fcs.append(self.fcs[i](output))
+            fcvars.append(self.fcvars[i](output))
+        return fcs, fcvars
 

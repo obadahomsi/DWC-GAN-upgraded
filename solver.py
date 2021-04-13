@@ -71,12 +71,8 @@ class Solver(nn.Module):
         print("trainable params with bert", trainable_params)
         
         #set BERT off
-        for param in self.gen.enc_txt.bert.parameters():
-            param.requires_grad = False
-            
-        #print("self.gen.enc_txt.bert.parameters()", self.gen.enc_txt.bert.parameters)
-        
-        #STOP
+        #for param in self.gen.enc_txt.bert.parameters():
+        #    param.requires_grad = False
             
         trainable_params = sum(p.numel() for p in self.gen.parameters() if p.requires_grad)
         print("trainable params exclude bert", trainable_params)
@@ -166,13 +162,13 @@ class Solver(nn.Module):
         return z_trg
 
     def forward(self, x_real, txt_src2trg, testing_bert, config_wb, txt_lens):
-        content, style_src, _ = self.gen.encode(x_real)
+        content, content_mu, content_var, style_src, _ = self.gen.encode(x_real, config_wb)
         style_txt, _ = self.gen.encode_txt(torch.cat(style_src, dim=1), txt_src2trg,testing_bert, config_wb, txt_lens)
 
         x_fake, x_fake_att = self.gen.decode(content, style_txt)
         if self.use_attention:
             x_fake = x_fake * x_fake_att  + x_real * (1-x_fake_att) 
-        return x_fake
+        return x_fake, whoiscallingme
 
     def gen_update(self, x_real, c_src, c_trg, txt_src2trg, testing_bert, config_wb, txt_lens, 
         label_src, label_trg, configs, iters):
@@ -180,7 +176,7 @@ class Solver(nn.Module):
         
         self.gen_opt.zero_grad()
         # encode
-        content_real, style_real, logvar = self.gen.encode(x_real)
+        content_real, content_real_mu, content_real_var, style_real, logvar = self.gen.encode(x_real, config_wb)
         
         # decode (within domain)
         x_real_rec, x_real_rec_att = self.gen.decode(content_real, 
@@ -191,7 +187,7 @@ class Solver(nn.Module):
             ''' This is where to implement 2-sided attention for within-domain'''
             
             
-        content_real_rec, style_real_rec, _ = self.gen.encode(x_real_rec)
+        content_real_rec, content_real_rec_mu, content_real_rec_var, style_real_rec, _ = self.gen.encode(x_real_rec, config_wb)
         
         # decode (cross domain)
         style_txt, logvar_txt = self.gen.encode_txt(torch.cat(style_real, dim=1), 
@@ -219,11 +215,11 @@ class Solver(nn.Module):
             x_fake2 = x_fake2*x_fake_att2 + x_real*(1-x_fake_att2)
             
         self.loss_ds = torch.mean(torch.abs(x_fake1 - x_fake2.detach()))
-        content_rand, style_rand, _ = self.gen.encode(x_fake1)
+        content_rand, content_rand_mu, content_rand_var, style_rand, _ = self.gen.encode(x_fake1, config_wb)
         self.init_ds_w = max(self.init_ds_w-1/1e5, 0.0)
         
         # encode again
-        content_fake_rec, style_fake_rec, _ = self.gen.encode(x_fake)
+        content_fake_rec, content_fake_rec_mu, content_fake_rec_var, style_fake_rec, _ = self.gen.encode(x_fake, config_wb)
         # decode again (if needed)
         if configs['recon_x_cyc_w'] > 0:
             x_cycle, x_cycle_att = self.gen.decode(content_fake_rec, 
@@ -240,6 +236,44 @@ class Solver(nn.Module):
         self.loss_gen_recon_s_fake = self.criterion_l1(style_fake_rec, style_txt)
         self.loss_gen_recon_s_rand = self.criterion_l1(style_rand, style1)
         
+        #Added by Dan
+        #KL divergence loss to regularize latent space (uses only mu and var)   
+        print("content_real_var, content_real_mu", content_real_var.shape, content_real_mu.shape)
+        
+
+#         self.loss_gen_kl_latent1 = torch.mean(0.5 * torch.sum(torch.exp(content_var) + content_mu**2 - 1.0 - content_var, dim = 1), dim=0)
+        
+#         self.loss_gen_kl_latent2 = torch.mean(0.5 * torch.sum(torch.exp(content_real_var) + content_real_mu**2 - 1.0 - content_real_var, dim = 1), dim=0)
+        
+        self.loss_gen_kl_latent2 = torch.mean(-0.5 * torch.sum(1 + content_real_var - content_real_mu**2 - content_real_var.exp(), dim=1), dim=0)
+        
+        
+        
+        #print("self.loss_gen_kl_latent2", self.loss_gen_kl_latent2)
+        #print(self.loss_gen_kl_latent2.shape)
+        
+        #STOP
+        
+#         self.loss_gen_kl_latent3 = torch.mean(0.5 * torch.sum(torch.exp(content_real_rec_var) + content_real_rec_mu**2 - 1.0 - content_real_rec_var, dim = 1), dim=0)
+        
+        self.loss_gen_kl_latent3 = torch.mean(-0.5 * torch.sum(1 + content_real_rec_var - content_real_rec_mu**2 - content_real_rec_var.exp(), dim=1), dim=0)
+        
+        
+        
+     
+#        self.loss_gen_kl_latent4 = torch.mean(0.5 * torch.sum(torch.exp(content_rand_var) + content_rand_mu**2 - 1.0 - content_rand_var, dim = 1), dim=0)
+        
+        self.loss_gen_kl_latent4 = torch.mean(-0.5 * torch.sum(1 + content_rand_var - content_rand_mu**2 - content_rand_var.exp(), dim=1), dim=0)
+        
+        
+        
+#         self.loss_gen_kl_latent5 = torch.mean(0.5 * torch.sum(torch.exp(content_fake_rec_var) + content_fake_rec_mu**2 - 1.0 - content_fake_rec_var, dim = 1), dim=0)
+
+        self.loss_gen_kl_latent5 = torch.mean(-0.5 * torch.sum(1 + content_fake_rec_var - content_fake_rec_mu**2 - content_fake_rec_var.exp(), dim=1), dim=0)
+        
+
+
+
         self.loss_gen_cycrecon_x = 0
         if configs['recon_x_cyc_w'] > 0:
             self.loss_gen_cycrecon_x = self.recon_criterion(x_cycle, x_real)
@@ -261,8 +295,17 @@ class Solver(nn.Module):
         self.loss_gen_vgg = 0
         if configs['recon_x_cyc_w'] > 0 and configs['vgg_w'] > 0:
             self.loss_gen_vgg = self.compute_vgg_loss(self.vgg, x_real, x_cycle)
+            
+            
+        
 
         # total loss
+        
+        kl_l = (config_wb.gen_kl_weight2 * self.loss_gen_kl_latent2 + \
+                              config_wb.gen_kl_weight3 * self.loss_gen_kl_latent3 + \
+                              config_wb.gen_kl_weight4 * self.loss_gen_kl_latent4 + \
+                              config_wb.gen_kl_weight5 * self.loss_gen_kl_latent5) * 0.1
+        
         self.loss_gen_total = self.loss_gen_adv + \
                               configs['recon_x_w'] * self.loss_gen_recon_x + \
                               configs['recon_c_w'] * self.loss_gen_recon_c_real + \
@@ -272,12 +315,47 @@ class Solver(nn.Module):
                               configs['recon_s_w'] * self.loss_gen_recon_s_fake + \
                               configs['recon_s_w'] * self.loss_gen_recon_s_rand + \
                               configs['recon_x_cyc_w'] * self.loss_gen_cycrecon_x + \
+                              kl_l + \
                               configs['kl_w'] * self.loss_kl_x + \
                               configs['kl_w'] * self.loss_kl_trg + \
                               configs['vgg_w'] * self.loss_gen_vgg - \
                               self.init_ds_w * self.loss_ds
         self.loss_gen_total.backward()
         self.gen_opt.step()
+        
+        
+        print("***********Relative weights***************")
+        
+        print("self.loss_gen_adv", self.loss_gen_adv,
+               "self.loss_gen_recon_x", configs['recon_x_w'] * self.loss_gen_recon_x,
+               "self.loss_gen_recon_c_real", configs['recon_c_w'] * self.loss_gen_recon_c_real,
+               "self.loss_gen_recon_c_fake", configs['recon_c_w'] * self.loss_gen_recon_c_fake,
+               "self.loss_gen_recon_c_rand", configs['recon_c_w'] * self.loss_gen_recon_c_rand,
+               "self.loss_gen_recon_s_real", configs['recon_s_w'] * self.loss_gen_recon_s_real,
+               "self.loss_gen_recon_s_fake", configs['recon_s_w'] * self.loss_gen_recon_s_fake,
+               "self.loss_gen_recon_s_rand", configs['recon_s_w'] * self.loss_gen_recon_s_rand,
+               "self.loss_gen_cycrecon_x", configs['recon_x_cyc_w'] * self.loss_gen_cycrecon_x,
+               "self.loss_gen_kl_latent2", config_wb.gen_kl_weight2 * self.loss_gen_kl_latent2,
+               "self.loss_gen_kl_latent3", config_wb.gen_kl_weight3 * self.loss_gen_kl_latent3,
+               "self.loss_gen_kl_latent4", config_wb.gen_kl_weight4 * self.loss_gen_kl_latent4,
+               "self.loss_gen_kl_latent5", config_wb.gen_kl_weight5 * self.loss_gen_kl_latent5,
+
+              
+               "self.loss_kl_x", configs['kl_w'] * self.loss_kl_x,
+               "self.loss_kl_trg", configs['kl_w'] * self.loss_kl_trg,
+               "self.loss_gen_vgg", configs['vgg_w'] * self.loss_gen_vgg)
+        
+        
+        
+        
+        print("total kl latent loss", kl_l)
+        print("total gen loss w/o kl latent", self.loss_gen_total - kl_l)
+        print("total gen loss", self.loss_gen_total)
+        
+        
+        if torch.any(self.loss_gen_total.isnan()):
+            STOP
+        
 
     def compute_vgg_loss(self, vgg, img, target):
         img_vgg = vgg_preprocess(img, self.device)
@@ -289,8 +367,15 @@ class Solver(nn.Module):
     def sample(self, x_real, txt_src2trg, testing_bert, config_wb, txt_lens):
         self.eval()
         x_real_recon, x_ab, x_sam, x_att = [], [], [], []
+        
+        print("x_real shape", x_real.shape)
+        print("txt_src2trg shape")
+        print("txt_src2trg", txt_src2trg)
+        
+        ''' Task: Locate and log the text commands for for each image generation'''
+        
         for i in range(x_real.size(0)):
-            content_real, style_real, _ = self.gen.encode(x_real[i:i+1])
+            content_real, content_real_mu, content_real_var, style_real, _ = self.gen.encode(x_real[i:i+1], config_wb)
             style_real = torch.cat(style_real, dim=1)
             style_txt, logvar_txt = self.gen.encode_txt(style_real, 
                 txt_src2trg[i:i+1], testing_bert, config_wb, txt_lens[i:i+1])
@@ -318,15 +403,10 @@ class Solver(nn.Module):
             x_ab.append(x_trg)
             x_real_recon.append(x_real_rec)
             x_sam.append(x_sample)
+            
         x_real_recon = torch.cat(x_real_recon)
         x_ab = torch.cat(x_ab)
         x_sam = torch.cat(x_sam)
-        
-        # x_real - source image
-        # x_real_recon - reconstructed source image (for content & visual attr constrain), 
-        # x_ab - manipulated image
-        # x_sam - sampled domain (for diversity)
-   
         outputs = [x_real, x_real_recon, x_ab, x_sam]
         
         if self.use_attention:
@@ -364,21 +444,42 @@ class Solver(nn.Module):
     def dis_update(self, x_real, c_src, c_trg, txt_src2trg, testing_bert, config_wb, txt_lens, 
         label_src, label_trg, configs, iters):
         self.dis_opt.zero_grad()
-        content_real, style_real, _ = self.gen.encode(x_real)
+        content_real, content_real_mu, content_real_var, style_real, _ = self.gen.encode(x_real, config_wb)
         style_real = torch.cat(style_real, dim=1)
 
         style1 = dist_sampling_split(c_trg, self.c_dim, self.stddev, self.device)
         style_txt, logvar_txt = self.gen.encode_txt(style_real, 
             txt_src2trg, testing_bert, config_wb, txt_lens)
         style_txt = torch.cat(style_txt, dim=1)
+        
+        print("content_real in solver.py", content_real.shape)
+        
         x_fake, x_fake_att = self.gen.decode(content_real, style_txt)
         x_fake1, x_fake_att1 = self.gen.decode(content_real, style1)
         if self.use_attention:
             x_fake = x_fake*x_fake_att + x_real*(1-x_fake_att)
             x_fake1 = x_fake1*x_fake_att1 + x_real*(1-x_fake_att1)
+            
+            
+        #KL divergence loss
+        
+        print("content_real_var , content_real_mu in DISCRIMINATOR", content_real_var.shape, content_real_mu.shape)
+        self.loss_dis_kl_latent = torch.mean(0.5 * torch.sum(torch.exp(content_real_var) + content_real_mu**2 - 1.0 - content_real_var, dim = 1), dim = 0)
+        
+        
+        print("self.loss_dis_kl_latent", self.loss_dis_kl_latent)
+        print(self.loss_dis_kl_latent.shape)
+        
+        #STOP2
 
         self.loss_dis = self.dis.calc_dis_loss(x_fake, x_real, label_trg, label_src, configs['gan_w'], configs['cls_w']) + \
-            self.dis.calc_dis_loss(x_fake1, x_real, label_trg, label_src, configs['gan_w'], configs['cls_w'])
+            self.dis.calc_dis_loss(x_fake1, x_real, label_trg, label_src, configs['gan_w'], configs['cls_w']) 
+        
+#         + \
+#             self.loss_dis_kl_latent
+            
+            
+        
         self.loss_dis_all = self.loss_dis
 
         # Compute loss for gradient penalty.
@@ -406,9 +507,7 @@ class Solver(nn.Module):
     def resume(self, checkpoint_dir, configs):
         # Load generators
         last_model_name = get_model_list(checkpoint_dir, "gen")
-        print("last_model_name", last_model_name[2:])
-        
-        state_dict = torch.load(last_model_name[2:], map_location=lambda storage, loc: storage)
+        state_dict = torch.load(last_model_name, map_location=lambda storage, loc: storage)
         self.gen.load_state_dict(state_dict['a'])
         iterations = int(last_model_name[-15:-7]) if 'avg' in last_model_name else int(last_model_name[-11:-3])
         # Load discriminators

@@ -33,6 +33,8 @@ recon_c_w: 1                  # weight of content reconstruction loss
 recon_x_cyc_w: 10             # weight of explicit style augmented cycle consistency loss
 vgg_w: 0.1                    # weight of domain-invariant perceptual loss
 gp_w: 0                       # weight of gradient panelty loss
+
+##kl_latent: 0.5                  #weight of kl loss on latent space 
 use_r1: False
 dist_w: 0.1                   # weight of distance constraints 
 dist_mode: kls                # em, Earth Mover; kl/kls, Kullback–Leibler Divergence
@@ -84,10 +86,6 @@ attr_path: datasets/celeba/list_attr_celeba.txt
 #pretrained_embed: './datasets/embeddings.npy'
 pretrained_embed: 'datasets/embeddings.npy'
 
-use_pretrain: True
-
-gen_pretrain: outputs/celeba_faces/checkpoints/gen_00040000.pt
-dis_pretrain: outputs/celeba_faces/checkpoints/dis_00040000.pt
-
-# gen_pretrain: ./models/celeba_gen.pt
-# dis_pretrain: ./models/celeba_dis.pt
+use_pretrain: False
+gen_pretrain: xxxx #./models/celeba_gen.pt
+dis_pretrain: yyyy #./models/celeba_dis.pt

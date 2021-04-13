@@ -10,6 +10,8 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 import numpy as np
 
+import torch.distributions as tdist
+
 try:
     from itertools import izip as zip
 except ImportError: # will be 3.x series
@@ -210,17 +212,64 @@ class AdaINGen(nn.Module):
         # MLP to generate AdaIN parameters
         self.mlp = MLP(style_dim, self.get_num_adain_params(self.dec), mlp_dim, 3, norm='none', activ=activ)
 
+#     def forward(self, images):
+#         # reconstruct an image
+#         content, mus, logvar = self.encode(images)
+#         images_recon = self.decode(content, mus)
+#         return images_recon
+
     def forward(self, images):
         # reconstruct an image
-        content, mus, logvar = self.encode(images)
-        images_recon = self.decode(content, mus)
-        return images_recon
+        Z_sample, content_mus, content_vars, mus, logvar = self.encode(images)
 
-    def encode(self, images):
+        images_recon = self.decode(Z_sample, mus)
+        return images_recon    #(content & attention)
+
+    
+#     def encode(self, images):
+#         # encode an image to its content and style codes
+#         mus, logvar = self.enc_style(images)
+#         content = self.enc_content(images)
+#         return content, mus, logvar
+
+
+
+    def encode(self, images, config_wb):
         # encode an image to its content and style codes
         mus, logvar = self.enc_style(images)
-        content = self.enc_content(images)
-        return content, mus, logvar
+        content_mus, content_vars = self.enc_content(images)
+
+        if self.training:
+
+            #sample from content (latent) distribution using differentiable re-parameterization trick 
+            content_std = torch.exp(0.5 * content_vars)
+            standard_noise = torch.randn_like(content_std)  #N(0,1)
+           
+
+            '''An alternative: we can assume content to be mean; and variance to be 1 and exclude variance completely'''
+            Z_sample = standard_noise.mul(content_std).add(content_mus) # (N(0,1)*S) + M
+
+
+        else: #testing/ Inference Time
+
+            #option1: use means as  content directly
+            Z_sample = content_mus
+
+            #option2: use  differentiable re-parameterization to sample
+            standard_noise = torch.randn_like(content_vars)  #N(0,1)
+            Z_sample = standard_noise.mul(content_vars).add(content_mus) # (N(0,1)*S) + M
+
+            #option3: sample from mu and var (Not diff if used at training time)
+            Z_sample = tdist.Normal(content_mus, content_vars).sample() 
+
+            return Z_sample, content_mus, content_vars, mus, logvar
+
+
+        #we return mu and var in order to regularize the latent space
+        return Z_sample, content_mus, content_vars, mus, logvar
+
+
+
 
     def encode_txt(self, style_ord, txt_org2trg, txt_lens):
         mu, logvar = self.enc_txt(style_ord, txt_org2trg, txt_lens)
@@ -230,8 +279,9 @@ class AdaINGen(nn.Module):
         # decode content and style codes to an image
         adain_params = self.mlp(style)
         self.assign_adain_params(adain_params, self.dec)
-        images = self.dec(content)
-        return images
+
+        images = self.dec(content) 
+        return images   #(content & attention)
 
     def assign_adain_params(self, adain_params, model):
         # assign the adain_params to the AdaIN layers in model
@@ -407,7 +457,12 @@ class StyleEncoder(nn.Module):
 
     def forward(self, x):
         feats  = self.model(x)
+        
+        print("feats", feats.shape)
         feats_ = feats.view(x.size(0), -1)
+        print("feats_", feats_.shape)
+        
+        STOP3
 
         if self.use_map:
             feats_ = self.mapping(feats_)
@@ -435,6 +490,30 @@ class ContentEncoder_old(nn.Module):
     def forward(self, x):
         return self.model(x)
 
+    
+
+# class ContentEncoder(nn.Module):
+#     def __init__(self, n_downsample, n_res, input_dim, dim, norm, activ, pad_type):
+#         super(ContentEncoder, self).__init__()
+#         self.model = []
+#         self.model += [Conv2dBlock(input_dim, dim, 7, 1, 3, norm=norm, activation=activ, pad_type=pad_type)]
+#         # downsampling blocks
+#         prev_dim = dim
+#         for i in range(n_downsample):
+#             dim = min(dim*2, 256)
+#             self.model += [Conv2dBlock(prev_dim, dim, 4, 2, 1, norm=norm, activation=activ, pad_type=pad_type)]
+#             prev_dim = dim
+
+#         # residual blocks
+#         self.model += [ResBlocks(n_res, dim, norm=norm, activation=activ, pad_type=pad_type)]
+#         self.model = nn.Sequential(*self.model)
+#         self.output_dim = dim
+
+#     def forward(self, x):
+#         return self.model(x)
+
+
+
 
 class ContentEncoder(nn.Module):
     def __init__(self, n_downsample, n_res, input_dim, dim, norm, activ, pad_type):
@@ -450,11 +529,18 @@ class ContentEncoder(nn.Module):
 
         # residual blocks
         self.model += [ResBlocks(n_res, dim, norm=norm, activation=activ, pad_type=pad_type)]
+        
+#         self.mus = nn.Sequential(*self.model)
+#         self.vars = nn.Sequential(*self.model)
+
         self.model = nn.Sequential(*self.model)
         self.output_dim = dim
 
     def forward(self, x):
-        return self.model(x)
+        content = self.model(x) #(1,256,32,32)
+        
+        return content
+
 
 
 class Decoder(nn.Module):

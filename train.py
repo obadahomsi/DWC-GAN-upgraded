@@ -38,41 +38,46 @@ import wandb
 cudnn.benchmark = True
 torch.manual_seed(1234)
 
+
+
+
+
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--config', type=str, default='configs/celeba_faces.yaml', help='Path to the config file.')
 parser.add_argument('--output_path', type=str, default='.', help="outputs path")
 parser.add_argument("--resume", type=int, default=0)
 parser.add_argument('--gpu_ids', type=str, default='1', help='gpu list')
-parser.add_argument('--use_pretrained_embed', type=int, default=0)
+parser.add_argument('--use_pretrained_embed', type=int, default=1)
 parser.add_argument('--n_critic', type=int, default=1, help='number of D updates per each G update')
 opts = parser.parse_args()
 
-#print( "gpu_id",opts.gpu_ids)
-#STOP
 
 
 
 # 1️⃣ Start a new run, tracking config metadata
-wandb.init(project="training-BERT", config={
-    "approach": "BERT last hidden",
+wandb.init(project="training-VAEs", config={
+    "approach": "m2_skip",
     "dropout": 0.1,
-    "use_bert": True,
-    "use_VAE":False,
-    "use_pretrained_embed" : opts.use_pretrained_embed,
-    "use_pretrain_model": opts.resume,
+    "use_bert": False,
+    "use_VAE":True,
+#     "use_pretrained_embed" : 
+#     "use_pretrain_model": False,
+    
+    "use_pretrained_embed" : opts.use_pretrained_embed, #True #for non-Berts, Yes
+    "use_pretrain_model": opts.resume, #False,
     "n_critic": opts.n_critic,
     "gpu_id" :opts.gpu_ids,
     "resume": opts.resume,
     "output_path": opts.output_path,
     
     "gen_kl_weight2":  0.1,
-    "gen_kl_weight3":  0.3,
-    "gen_kl_weight4":  0.3,
-    "gen_kl_weight5":  0.3,
+    "gen_kl_weight3":  0.1,
+    "gen_kl_weight4":  0.1,
+    "gen_kl_weight5":  0.1,
     
 })
 config_wb = wandb.config
-
 
 
 
@@ -120,11 +125,10 @@ test_display_txt    = torch.stack([item[3] for item in test_display]).to(device)
 test_display_txt_lens = torch.stack([item[4] for item in test_display]).to(device)
 
 pretrained_embed=None
-# if opts.use_pretrained_embed:
+#if opts.use_pretrained_embed:
 if config_wb.use_pretrained_embed:
     with open(config['pretrained_embed'], 'rb') as fin:
         pretrained_embed = pickle.load(fin)
-        
         
 # Setup model and data loader
 trainer = Solver(config, device, pretrained_embed).to(device)
@@ -132,7 +136,7 @@ trainer = Solver(config, device, pretrained_embed).to(device)
 if config_wb.use_pretrain_model:
     trainer.init_network(config['gen_pretrain'], config['dis_pretrain'])
 
-    
+#stop now2
     
 # Setup logger and output folders
 model_name = os.path.splitext(os.path.basename(opts.config))[0]
@@ -146,8 +150,8 @@ shutil.copy(opts.config, os.path.join(output_directory, 'config.yaml')) # copy c
 iterations = trainer.resume(checkpoint_directory, config) if opts.resume else 0
 trainer.copy_nets()
 
-
-
+#stop now3
+#print("YESSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS")
 
 
 def ind2text(text,  dict_rev):
@@ -182,16 +186,16 @@ while True:
         x_real, label_src, label_trg, txt_src2trg, txt_lens = data_iter
         
         print('START')
-        print('----------------------------txt_lens in data loader in train.py', txt_lens, '----------------')
         
-        #print('----------------------------txt_src2trg in data loader in train.py', txt_src2trg, '----------------')
+        #print('----------------------------txt_lens in data loader in train.py', txt_lens, '----------------')
+        
+        print('----------------------------txt_src2trg in data loader in train.py', txt_src2trg, '----------------')
         #print(' IN BETWEEN' )
         #print('----------------------------label_src in data loader in train.py', label_src)
         #print('----------------------------label_trg in data loader in train.py', label_trg)
         
         vocab = Vocab(dataset='CelebA')
         
-
 
         from collections import defaultdict
         vocabulary = vocab.stoi
@@ -211,7 +215,7 @@ while True:
         
         print('STOP')
         
-
+  
         
         c_src = asign_label(label_src, config['c_dim'], dataset_name).to(device)# e.g [0,0,1,1] -> [-1,-1,1,1]
         c_trg = asign_label(label_trg, config['c_dim'], dataset_name).to(device)
@@ -229,8 +233,8 @@ while True:
         with Timer("Elapsed time in update: %f"):
             trainer.dis_update(x_real, c_src, c_trg, txt_src2trg, testing_bert, config_wb, txt_lens, label_src, 
                 label_trg, config, iterations)
-            if (iterations+1) % opts.n_critic == 0:
-                trainer.gen_update(x_real, c_src, c_trg, txt_src2trg, testing_bert, config_wb, txt_lens, 
+            #if (iterations+1) % opts.n_critic == 0:
+            trainer.gen_update(x_real, c_src, c_trg, txt_src2trg, testing_bert, config_wb, txt_lens, 
                     label_src, label_trg, config, iterations)
             torch.cuda.synchronize()
             trainer.smooth_moving()
