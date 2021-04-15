@@ -87,5 +87,5 @@ attr_path: datasets/celeba/list_attr_celeba.txt
 pretrained_embed: 'datasets/embeddings.npy'
 
 use_pretrain: False
-gen_pretrain: xxxx #./models/celeba_gen.pt
-dis_pretrain: yyyy #./models/celeba_dis.pt
+gen_pretrain: xx #outputs/celeba_faces/checkpoints/gen_00090000_nw.pt
+dis_pretrain: yy #outputs/celeba_faces/checkpoints/dis_00090000_nw.pt

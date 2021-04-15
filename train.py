@@ -53,11 +53,11 @@ parser.add_argument('--n_critic', type=int, default=1, help='number of D updates
 opts = parser.parse_args()
 
 
-
+print("resume",  opts.resume,)
 
 # 1️⃣ Start a new run, tracking config metadata
-wandb.init(project="training-VAEs", config={
-    "approach": "m2_skip",
+wandb.init(project="training-vae-skip", config={
+    "approach": "f2_skip_instace_norm",
     "dropout": 0.1,
     "use_bert": False,
     "use_VAE":True,

@@ -544,6 +544,11 @@ class Solver(nn.Module):
             if key in gen_dict and 'embed_tokens' not in key:
                 gen_state_dict[key] = gen_dict[key]
         self.gen.load_state_dict(gen_state_dict)
+        
+        #resave
+#         torch.save({'a': self.gen.state_dict()}, "outputs/celeba_faces/checkpoints/gen_00090000_nw.pt")
+#         torch.save({'b': self.dis.state_dict()}, "outputs/celeba_faces/checkpoints/dis_00090000_nw.pt")
+#         STOP
 
         print("Initial model loaded...")
 

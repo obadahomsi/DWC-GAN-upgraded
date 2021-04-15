@@ -49,7 +49,8 @@ class AdaINGen_v2(nn.Module):
         #fcs for mu and var
         
         self.fc_mu = nn.Sequential(nn.Linear(262144, 8),
-                                     nn.LeakyReLU(inplace=True),
+                                   nn.InstanceNorm1d(8),
+                                     nn.LeakyReLU(0.2, inplace=True),
 #                                      nn.Dropout(p=0.3),
 #                                      nn.Linear(2048, 256),
 #                                      nn.Dropout(p=0.1),
@@ -59,7 +60,9 @@ class AdaINGen_v2(nn.Module):
                                   )
         
         self.fc_var = nn.Sequential(nn.Linear(262144, 8),
-                                     nn.LeakyReLU(inplace=True),
+                                    nn.InstanceNorm1d(8),
+                                     nn.LeakyReLU(0.2, inplace=True),
+                                    
 #                                      nn.Dropout(p=0.3),
 #                                      nn.Linear(2048, 256),
 #                                      nn.Dropout(p=0.1),
@@ -70,14 +73,13 @@ class AdaINGen_v2(nn.Module):
         
         self.z_up = nn.Sequential(
                                        nn.Linear(8, 262144),
-                                     nn.LeakyReLU(inplace=True),
+                                    nn.InstanceNorm1d(262144),
+                                     nn.LeakyReLU(0.2, inplace=True),
 #                                      nn.Dropout(p=0.3),
 #                                      nn.Linear(256, 2048),
 #                                      nn.Dropout(p=0.1),
 #                                      nn.ReLU(inplace=True),
 #                                      nn.Linear(256, 262144),
-                                    
-                                  )
 
 
         
