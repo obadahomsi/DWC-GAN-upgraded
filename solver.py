@@ -25,6 +25,7 @@ class Solver(nn.Module):
         super(Solver, self).__init__()
         self.device = device if device is not None else torch.device('cpu')
         self.configs =  configs
+        self.two_sided = configs['gen']['two_sided']
 
         self.vocab = Vocab(dataset=configs['dataset'])
         # Initiate the networks
@@ -150,6 +151,20 @@ class Solver(nn.Module):
             x_fake = x_fake * x_fake_att  + x_real * (1-x_fake_att) 
         return x_fake
 
+    def two_sided_attention(self, img_ft, style_ft):
+        if self.two_sided:
+            if isinstance(style_ft, list):
+                style_ft = torch.stack(style_ft).permute(1, 0, 2)
+            V = torch.flatten(img_ft, start_dim=2)
+            W_ = self.gen.project(style_ft)
+            match_score = torch.bmm(V, W_.permute(0, 2, 1))
+            A = nn.Softmax(dim=0)(match_score)
+            att_ft = torch.bmm(A, W_).reshape(img_ft.shape[0], -1, img_ft.shape[-2], img_ft.shape[-1])
+            content_real = torch.cat([img_ft, att_ft], dim=1)
+
+            return content_real
+        return img_ft
+
     def gen_update(self, x_real, c_src, c_trg, txt_src2trg, txt_lens, 
         label_src, label_trg, configs, iters):
         self.gen_opt.zero_grad()
@@ -157,7 +172,7 @@ class Solver(nn.Module):
         content_real, style_real, logvar = self.gen.encode(x_real)
         
         # decode (within domain)
-        x_real_rec, x_real_rec_att = self.gen.decode(content_real, 
+        x_real_rec, x_real_rec_att = self.gen.decode(self.two_sided_attention(content_real.clone(), style_real), 
             torch.cat(style_real,dim=1))
         if self.use_attention:
             x_real_rec = x_real_rec*x_real_rec_att + x_real*(1-x_real_rec_att)
@@ -166,7 +181,7 @@ class Solver(nn.Module):
         # decode (cross domain)
         style_txt, logvar_txt = self.gen.encode_txt(torch.cat(style_real, dim=1), 
             txt_src2trg, txt_lens)
-        x_fake, x_fake_att = self.gen.decode(content_real, 
+        x_fake, x_fake_att = self.gen.decode(self.two_sided_attention(content_real.clone(), style_txt), 
             torch.cat(style_txt,dim=1))
         if self.use_attention:
             x_fake = x_fake*x_fake_att + x_real*(1-x_fake_att)
@@ -174,9 +189,15 @@ class Solver(nn.Module):
         #self.loss_ds = 0.0
         #if self.stddev > 0 and iters > self.ds_iter:
         style1 = dist_sampling_split(c_trg, self.c_dim, self.stddev, self.device)
-        x_fake1, x_fake_att1 = self.gen.decode(content_real, style1)
+        content_fake1 = content_real.clone()
+        if self.two_sided:
+            content_fake1 = self.two_sided_attention(content_fake1, style1.reshape(-1, c_trg.shape[-1], self.c_dim))
+        x_fake1, x_fake_att1 = self.gen.decode(content_fake1, style1)
         style2 = dist_sampling_split(c_trg, self.c_dim, self.stddev, self.device)
-        x_fake2, x_fake_att2 = self.gen.decode(content_real, style2)
+        content_fake2 = content_real.clone()
+        if self.two_sided:
+            content_fake2 = self.two_sided_attention(content_fake2, style2.reshape(-1, c_trg.shape[-1], self.c_dim))
+        x_fake2, x_fake_att2 = self.gen.decode(content_fake2, style2)
         if self.use_attention:
             x_fake1 = x_fake1*x_fake_att1 + x_real*(1-x_fake_att1)
             x_fake2 = x_fake2*x_fake_att2 + x_real*(1-x_fake_att2)
@@ -188,7 +209,7 @@ class Solver(nn.Module):
         content_fake_rec, style_fake_rec, _ = self.gen.encode(x_fake)
         # decode again (if needed)
         if configs['recon_x_cyc_w'] > 0:
-            x_cycle, x_cycle_att = self.gen.decode(content_fake_rec, 
+            x_cycle, x_cycle_att = self.gen.decode(self.two_sided_attention(content_fake_rec.clone(), style_fake_rec), 
                 torch.cat(style_real,dim=1))
             if self.use_attention:
                 x_cycle = x_cycle*x_cycle_att + x_real*(1-x_cycle_att)
@@ -258,8 +279,8 @@ class Solver(nn.Module):
                 txt_src2trg[i:i+1], txt_lens[i:i+1])
             style_txt = torch.cat(style_txt,dim=1)
             
-            x_real_rec, x_real_rec_att = self.gen.decode(content_real, style_real)
-            x_trg, x_trg_att = self.gen.decode(content_real, style_txt)
+            x_real_rec, x_real_rec_att = self.gen.decode(self.two_sided_attention(content_real.clone(), style_real.reshape(-1, self.c_dim, self.c_dim)), style_real)
+            x_trg, x_trg_att = self.gen.decode(self.two_sided_attention(content_real.clone(), style_txt.reshape(-1, self.c_dim, self.c_dim)), style_txt)
 
             mus_real = torch.ones(1,self.num_cls).float().to(self.device)
             mus_txt = torch.ones(1,self.num_cls).float().to(self.device)
@@ -270,7 +291,7 @@ class Solver(nn.Module):
                     mus_txt[0,idx] = -1.0
             z_sample = dist_sampling_split(mus_txt, self.c_dim, self.stddev, self.device)
             z_sample = self.style_replace(mus_real, mus_txt, style_real, z_sample)
-            x_sample, x_sample_att = self.gen.decode(content_real, z_sample)
+            x_sample, x_sample_att = self.gen.decode(self.two_sided_attention(content_real.clone(), z_sample.reshape(-1, self.c_dim, self.c_dim)), z_sample)
 
             if self.use_attention:
                 x_trg = x_trg*x_trg_att + x_real[i:i+1]*(1-x_trg_att)
@@ -325,6 +346,8 @@ class Solver(nn.Module):
         style1 = dist_sampling_split(c_trg, self.c_dim, self.stddev, self.device)
         style_txt, logvar_txt = self.gen.encode_txt(style_real, 
             txt_src2trg, txt_lens)
+        if self.two_sided:
+            content_real = self.two_sided_attention(content_real, style_txt)
         style_txt = torch.cat(style_txt, dim=1)
         x_fake, x_fake_att = self.gen.decode(content_real, style_txt)
         x_fake1, x_fake_att1 = self.gen.decode(content_real, style1)

@@ -36,9 +36,12 @@ class AdaINGen_v2(nn.Module):
             norm='none', activ=activ, pad_type=pad_type, c_dim=c_dim, 
             num_class=num_cls, use_map=use_map)
 
+        # latent-dim projection layer
+        self.project = nn.Linear(150, 32*32, bias=False)
+
         # content encoder
         self.enc_content = ContentEncoder(content_downsample, n_res, 
-            input_dim, dim, 'in', activ, pad_type=pad_type)
+            input_dim, dim, 'in', activ, pad_type=pad_type, two_sided=params['two_sided'])
         self.dec = Decoder(content_downsample, n_res, self.enc_content.output_dim, 
             input_dim, res_norm='adain', activ=activ, pad_type=pad_type, 
             use_attention=use_attention)

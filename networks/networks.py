@@ -426,7 +426,7 @@ class ContentEncoder_old(nn.Module):
 
 
 class ContentEncoder(nn.Module):
-    def __init__(self, n_downsample, n_res, input_dim, dim, norm, activ, pad_type):
+    def __init__(self, n_downsample, n_res, input_dim, dim, norm, activ, pad_type, two_sided=False):
         super(ContentEncoder, self).__init__()
         self.model = []
         self.model += [Conv2dBlock(input_dim, dim, 7, 1, 3, norm=norm, activation=activ, pad_type=pad_type)]
@@ -440,7 +440,7 @@ class ContentEncoder(nn.Module):
         # residual blocks
         self.model += [ResBlocks(n_res, dim, norm=norm, activation=activ, pad_type=pad_type)]
         self.model = nn.Sequential(*self.model)
-        self.output_dim = dim
+        self.output_dim = 2*dim if two_sided else dim
 
     def forward(self, x):
         return self.model(x)
