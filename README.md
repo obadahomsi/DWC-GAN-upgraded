@@ -1,6 +1,6 @@
 ## Unsupervised Text-Guided Image Manipulation
 
-This is the github repository for the project "Unsupervised Text-Guided Image Manipulation". We adopt [[Paper]](https://dl.acm.org/doi/pdf/10.1145/3394171.3413505) [DWC-GAN](https://dl.acm.org/doi/pdf/10.1145/3394171.3413505) as our baseline and propose multiple extensions to this architecture. 
+This is the github repository for the project "Unsupervised Text-Guided Image Manipulation". We adopt [[DWC-GAN]](https://dl.acm.org/doi/pdf/10.1145/3394171.3413505) as our baseline and propose multiple extensions to this architecture. 
 
 ## DWC-GAN
 
@@ -67,4 +67,4 @@ DWC-GAN
 ```
 
 
-The readme was developed thanks to this [[repository]](https://github.com/namratadeka/scene-rearrangement/blob/main/README.md)
+The readme was developed thanks to this [[DWC-GAN]](https://dl.acm.org/doi/pdf/10.1145/3394171.3413505) [[repository]](https://github.com/namratadeka/scene-rearrangement/blob/main/README.md)
