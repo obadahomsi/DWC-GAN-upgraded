@@ -1,18 +1,20 @@
 ## Unsupervised Text-Guided Image Manipulation
 
-This is the github repository for the project "Unsupervised Text-Guided Image Manipulation". We adopt [DWC-GAN] (https://dl.acm.org/doi/pdf/10.1145/3394171.3413505) as our baseline and propose multiple extensions to this architecture. 4 models were developed: 
-
-1. DWC-GAN-BERT (DWC-GAN + Bidirectional Text Representations)
-2. DWC-GAN-Attention (DWC-GAN + Two-sided Attention)
-3. DWC-GAN-VAE (DWC-GAN + VAE with skip connections)
-4. DWC-GAN-VAE-noskip (DWC-GAN + VAE without skip connections)
-5. DWC-GAN-VAE-simple (DWC-GAN + simplified VAE)
+This is the github repository for the project "Unsupervised Text-Guided Image Manipulation". We adopt [DWC-GAN] (https://dl.acm.org/doi/pdf/10.1145/3394171.3413505) as our baseline and propose multiple extensions to this architecture. 
 
 ## DWC-GAN
 
 Describe What to Change: A Text-guided Unsupervised Image-to-Image Translation Approach, accepted to ACM International Conference on Multimedia(**ACM MM**), 2020. [[Paper]](https://dl.acm.org/doi/pdf/10.1145/3394171.3413505)|[[arXiv]](https://arxiv.org/abs/2008.04200)|[[code]](https://github.com/yhlleo/DWC-GAN)
 
 ![](./figures/framework.png)
+
+
+4 models were developed: 
+1. DWC-GAN-BERT (DWC-GAN + Bidirectional Text Representations)
+2. DWC-GAN-Attention (DWC-GAN + Two-sided Attention)
+3. DWC-GAN-VAE (DWC-GAN + VAE with skip connections)
+4. DWC-GAN-VAE-noskip (DWC-GAN + VAE without skip connections)
+5. DWC-GAN-VAE-simple (DWC-GAN + simplified VAE)
 
 
 ### Configuration
@@ -65,4 +67,4 @@ DWC-GAN
 ```
 
 
-The readme was developed thanks to this [repository] (https://github.com/namratadeka/scene-rearrangement/blob/main/README.md)
+The readme was developed thanks to this [repository](https://github.com/namratadeka/scene-rearrangement/blob/main/README.md)
