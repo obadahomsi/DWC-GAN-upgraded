@@ -1,6 +1,6 @@
 ## Unsupervised Text-Guided Image Manipulation
 
-This is the github repository for the project "Unsupervised Text-Guided Image Manipulation". We adopt [DWC-GAN] () as our baseline and propose multiple extensions to this architecture. 4 models were developed: 
+This is the github repository for the project "Unsupervised Text-Guided Image Manipulation". We adopt [DWC-GAN] (https://dl.acm.org/doi/pdf/10.1145/3394171.3413505) as our baseline and propose multiple extensions to this architecture. 4 models were developed: 
 
 1. DWC-GAN-BERT (DWC-GAN + Bidirectional Text Representations)
 2. DWC-GAN-Attention (DWC-GAN + Two-sided Attention)
