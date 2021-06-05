@@ -45,12 +45,14 @@ datasets
  - Train:
 
 ```
-sh ./scripts/train_celeba_faces.sh <gpu_id> 0
+sh ./scripts/train_celeba_faces.sh <gpu_id> 0 
+# or
+python train.py --config configs/celeba_faces.yaml
 ```
 
 ### Evaluation codes
 
-We evaluate the performances of the compared models mainly based on this repo: [GAN-Metrics](https://github.com/yhlleo/GAN-Metrics)
+We use Frechet Inception Distance (FID) and the InceptionScore (IS) to evaluate image quality of our models based on this repo: [GAN-Metrics](https://github.com/yhlleo/GAN-Metrics)
 
 
 ### References
